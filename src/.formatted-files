@@ -117,6 +117,8 @@ thinblock.h
 threadsafety.h
 timedata.cpp
 timedata.h
+tokengroups.h
+tokengroups.cpp
 torcontrol.cpp
 torcontrol.h
 tweak.cpp

@@ -172,7 +172,7 @@ CTransaction tx1x1(const COutPoint &utxo, const CScript &txo, CAmount amt, const
     return tx;
 }
 
-CTransaction tx1x1(const CTransaction &prevtx, int prevout, const CScript &txo, CAmount amt, const CKey& key, bool p2pkh=true)
+CTransaction tx1x1(const CTransaction &prevtx, unsigned int prevout, const CScript &txo, CAmount amt, const CKey& key, bool p2pkh=true)
 {
     CMutableTransaction tx;
     tx.vin.resize(1);
@@ -185,6 +185,7 @@ CTransaction tx1x1(const CTransaction &prevtx, int prevout, const CScript &txo, 
 
     unsigned int sighashType = SIGHASH_ALL | SIGHASH_FORKID;
     std::vector<unsigned char> vchSig;
+    assert(prevout < prevtx.vout.size());
     uint256 hash = SignatureHash(prevtx.vout[prevout].scriptPubKey, tx, 0, sighashType, prevtx.vout[prevout].nValue, 0);
     if (!key.Sign(hash, vchSig))
     {
@@ -200,7 +201,7 @@ CTransaction tx1x1(const CTransaction &prevtx, int prevout, const CScript &txo, 
     return tx;
 }
 
-CTransaction tx1x1_p2sh_of_p2pkh(const CTransaction &prevtx, int prevout, const CScript &txo, CAmount amt, const CKey& key, const CScript& redeemScript)
+CTransaction tx1x1_p2sh_of_p2pkh(const CTransaction &prevtx, unsigned int prevout, const CScript &txo, CAmount amt, const CKey& key, const CScript& redeemScript)
 {
     CMutableTransaction tx;
     tx.vin.resize(1);
@@ -213,6 +214,7 @@ CTransaction tx1x1_p2sh_of_p2pkh(const CTransaction &prevtx, int prevout, const 
 
     unsigned int sighashType = SIGHASH_ALL | SIGHASH_FORKID;
     std::vector<unsigned char> vchSig;
+    assert(prevout < prevtx.vout.size());
     uint256 hash = SignatureHash(redeemScript, tx, 0, sighashType, prevtx.vout[prevout].nValue, 0);
     if (!key.Sign(hash, vchSig))
     {
@@ -227,7 +229,7 @@ CTransaction tx1x1_p2sh_of_p2pkh(const CTransaction &prevtx, int prevout, const 
 }
 
 
-CTransaction tx1x2(const CTransaction &prevtx, int prevout, const CScript &txo0, CAmount amt0, const CScript &txo1, CAmount amt1, const CKey& key, bool p2pkh=true)
+CTransaction tx1x2(const CTransaction &prevtx, unsigned int prevout, const CScript &txo0, CAmount amt0, const CScript &txo1, CAmount amt1, const CKey& key, bool p2pkh=true)
 {
     CMutableTransaction tx;
     tx.vin.resize(1);
@@ -244,6 +246,7 @@ CTransaction tx1x2(const CTransaction &prevtx, int prevout, const CScript &txo0,
 
     unsigned int sighashType = SIGHASH_ALL | SIGHASH_FORKID;
     std::vector<unsigned char> vchSig;
+    assert(prevout < prevtx.vout.size());
     uint256 hash = SignatureHash(prevtx.vout[prevout].scriptPubKey, tx, 0, sighashType, prevtx.vout[prevout].nValue, 0);
     if (!key.Sign(hash, vchSig))
     {

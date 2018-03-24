@@ -9,6 +9,7 @@
 
 #include "amount.h"
 #include "clientversion.h"
+#include "consensus/tokengroups.h"
 #include "policy/policy.h"
 #include "script/ismine.h"
 #include "streams.h"
@@ -369,6 +370,13 @@ public:
     CAmount GetChange() const;
 
     void GetAmounts(std::list<COutputEntry> &listReceived,
+        std::list<COutputEntry> &listSent,
+        CAmount &nFee,
+        std::string &strSentAccount,
+        const isminefilter &filter) const;
+
+    void GetGroupAmounts(const CTokenGroupID& grp,
+        std::list<COutputEntry> &listReceived,
         std::list<COutputEntry> &listSent,
         CAmount &nFee,
         std::string &strSentAccount,

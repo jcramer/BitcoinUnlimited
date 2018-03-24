@@ -127,14 +127,12 @@ CTokenGroupInfo::CTokenGroupInfo(const CScript &script)
 
     if (!script.GetOp(pc, opcodeQty, tokenQty))
     {
-        DbgAssert(!"empty script", ); // this should be impossible since that means script with 1 byte
         associatedGroup = NoGroup;
         return;
     }
 
     if (!script.GetOp(pc, opcode, data))
     {
-        DbgAssert(!"empty script", ); // this should be impossible since that means script with 1 byte
         associatedGroup = NoGroup;
         return;
     }

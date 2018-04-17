@@ -13,6 +13,7 @@
 #include "net.h"
 #include "rpc/server.h"
 #include "timedata.h"
+#include "tokengroupwallet.h"
 #include "util.h"
 #include "utilmoneystr.h"
 #include "wallet.h"
@@ -1385,8 +1386,8 @@ void ListTransactions(const CWalletTx &wtx,
 {
     CAmount nFee;
     string strSentAccount;
-    list<COutputEntry> listReceived;
-    list<COutputEntry> listSent;
+    list<CGroupedOutputEntry> listReceived;
+    list<CGroupedOutputEntry> listSent;
 
     wtx.GetAmounts(listReceived, listSent, nFee, strSentAccount, filter);
 
@@ -1396,7 +1397,7 @@ void ListTransactions(const CWalletTx &wtx,
     // Sent
     if ((!listSent.empty() || nFee != 0) && (fAllAccounts || strAccount == strSentAccount))
     {
-        BOOST_FOREACH (const COutputEntry &s, listSent)
+        BOOST_FOREACH (const CGroupedOutputEntry &s, listSent)
         {
             UniValue entry(UniValue::VOBJ);
             if (involvesWatchonly || (::IsMine(*pwalletMain, s.destination, chainActive.Tip()) & ISMINE_WATCH_ONLY))
@@ -1404,6 +1405,11 @@ void ListTransactions(const CWalletTx &wtx,
             entry.push_back(Pair("account", strSentAccount));
             MaybePushAddress(entry, s.destination);
             entry.push_back(Pair("category", "send"));
+            if (s.grp != NoGroup)
+            {
+                entry.push_back(Pair("group", EncodeTokenGroup(s.grp)));
+                entry.push_back(Pair("groupAmount", -s.grpAmount));
+            }
             entry.push_back(Pair("satoshi", UniValue(-s.amount)));
             entry.push_back(Pair("amount", ValueFromAmount(-s.amount)));
             if (pwalletMain->mapAddressBook.count(s.destination))
@@ -1420,7 +1426,7 @@ void ListTransactions(const CWalletTx &wtx,
     // Received
     if (listReceived.size() > 0 && wtx.GetDepthInMainChain() >= nMinDepth)
     {
-        BOOST_FOREACH (const COutputEntry &r, listReceived)
+        BOOST_FOREACH (const CGroupedOutputEntry &r, listReceived)
         {
             string account;
             if (pwalletMain->mapAddressBook.count(r.destination))
@@ -1444,6 +1450,11 @@ void ListTransactions(const CWalletTx &wtx,
                 else
                 {
                     entry.push_back(Pair("category", "receive"));
+                }
+                if (r.grp != NoGroup)
+                {
+                    entry.push_back(Pair("group", EncodeTokenGroup(r.grp)));
+                    entry.push_back(Pair("groupAmount", r.grpAmount));
                 }
                 entry.push_back(Pair("satoshi", UniValue(r.amount)));
                 entry.push_back(Pair("amount", ValueFromAmount(r.amount)));
@@ -1847,11 +1858,13 @@ UniValue gettransaction(const UniValue &params, bool fHelp)
             "can be \"\" for the default account.\n"
             "      \"address\" : \"bitcoinaddress\",   (string) The bitcoin address involved in the transaction\n"
             "      \"category\" : \"send|receive\",    (string) The category, either 'send' or 'receive'\n"
-            "      \"amount\" : x.xxx,                 (numeric) The amount in " +
+            "      \"group\": \"groupidentifier\",     (string) The token identifier (appears only if applicable)\n"
+            "      \"groupAmount\": n,               (numeric) The token quantity (appears only if applicable)\n"
+            "      \"amount\" : x.xxx,               (numeric) The amount in " +
             CURRENCY_UNIT +
             "\n"
             "      \"label\" : \"label\",              (string) A comment for the address/transaction, if any\n"
-            "      \"vout\" : n,                       (numeric) the vout value\n"
+            "      \"vout\" : n,                     (numeric) the vout value\n"
             "    }\n"
             "    ,...\n"
             "  ],\n"

@@ -264,17 +264,20 @@ void FinalizeNode(NodeId nodeid)
     if (state->fSyncStarted)
         nSyncStarted--;
 
-    for (const QueuedBlock &entry : state->vBlocksInFlight)
+    std::vector<uint256> vBlocksInFlight;
+    requester.GetBlocksInFlight(vBlocksInFlight, nodeid);
+    for (const uint256 &hash : vBlocksInFlight)
     {
-        LOGA("erasing map mapblocksinflight entries\n");
-        requester.MapBlocksInFlightErase(entry.hash);
+        // Erase mapblocksinflight entries for this node.
+        requester.MapBlocksInFlightErase(hash, nodeid);
 
         // Reset all requests times to zero so that we can immediately re-request these blocks
-        requester.ResetLastRequestTime(entry.hash);
+        requester.ResetLastRequestTime(hash);
     }
     nPreferredDownload -= state->fPreferredDownload;
 
     mapNodeState.erase(nodeid);
+    requester.RemoveNodeState(nodeid);
     if (mapNodeState.empty())
     {
         // Do a consistency check after the last peer is removed.  Force consistent state if production code
@@ -314,10 +317,13 @@ bool GetNodeStateStats(NodeId nodeid, CNodeStateStats &stats)
     stats.nMisbehavior = node->nMisbehavior;
     stats.nSyncHeight = state->pindexBestKnownBlock ? state->pindexBestKnownBlock->nHeight : -1;
     stats.nCommonHeight = state->pindexLastCommonBlock ? state->pindexLastCommonBlock->nHeight : -1;
-    for (const QueuedBlock &queue : state->vBlocksInFlight)
+
+    std::vector<uint256> vBlocksInFlight;
+    requester.GetBlocksInFlight(vBlocksInFlight, nodeid);
+    for (const uint256 &hash : vBlocksInFlight)
     {
         // lookup block by hash to find height
-        BlockMap::iterator mi = mapBlockIndex.find(queue.hash);
+        BlockMap::iterator mi = mapBlockIndex.find(hash);
         if (mi != mapBlockIndex.end())
         {
             CBlockIndex *pindex = (*mi).second;
@@ -3619,13 +3625,13 @@ bool ContextualCheckBlock(const CBlock &block, CValidationState &state, CBlockIn
     // TODO: check if we can remove the second conditions since on regtest uahHeight is 0
     if (pindexPrev && UAHFforkAtNextBlock(pindexPrev->nHeight) && (pindexPrev->nHeight > 1))
     {
-        DbgAssert(block.nBlockSize, );
-        if (block.nBlockSize <= BLOCKSTREAM_CORE_MAX_BLOCK_SIZE)
+        DbgAssert(block.GetBlockSize(), );
+        if (block.GetBlockSize() <= BLOCKSTREAM_CORE_MAX_BLOCK_SIZE)
         {
             uint256 hash = block.GetHash();
             return state.DoS(100,
                 error("%s: UAHF fork block (%s, height %d) must exceed %d, but this block is %d bytes", __func__,
-                                 hash.ToString(), nHeight, BLOCKSTREAM_CORE_MAX_BLOCK_SIZE, block.nBlockSize),
+                                 hash.ToString(), nHeight, BLOCKSTREAM_CORE_MAX_BLOCK_SIZE, block.GetBlockSize()),
                 REJECT_INVALID, "bad-blk-too-small");
         }
     }
@@ -3891,7 +3897,7 @@ bool ProcessNewBlock(CValidationState &state,
 
         LOG(BENCH,
             "ProcessNewBlock, time: %d, block: %s, len: %d, numTx: %d, maxVin: %llu, maxVout: %llu, maxTx:%llu\n",
-            end - start, pblock->GetHash().ToString(), pblock->nBlockSize, pblock->vtx.size(), maxVin, maxVout,
+            end - start, pblock->GetHash().ToString(), pblock->GetBlockSize(), pblock->vtx.size(), maxVin, maxVout,
             maxTxSize);
         LOG(BENCH, "tx: %s, vin: %llu, vout: %llu, len: %d\n", txIn.GetHash().ToString(), txIn.vin.size(),
             txIn.vout.size(), ::GetSerializeSize(txIn, SER_NETWORK, PROTOCOL_VERSION));
@@ -6841,6 +6847,21 @@ bool SendMessages(CNode *pto)
         // First set fDisconnect if appropriate.
         pto->DisconnectIfBanned();
 
+        // Check for an internal disconnect request and if true then set fDisconnect. This would typically happen
+        // during initial sync when a peer has a slow connection and we want to disconnect them.  We want to then
+        // wait for any blocks that are still in flight before disconnecting, rather than re-requesting them again.
+        if (pto->fDisconnectRequest)
+        {
+            NodeId nodeid = pto->GetId();
+            int nInFlight = requester.GetNumBlocksInFlight(nodeid);
+            LOG(IBD, "peer=%d, checking disconnect request with %d in flight blocks\n", nodeid, nInFlight);
+            if (nInFlight == 0)
+            {
+                pto->fDisconnect = true;
+                LOG(IBD, "peer=%d, disconnected\n", nodeid);
+            }
+        }
+
         // Now exit early if disconnecting or the version handshake is not complete.  We must not send PING or other
         // connection maintenance messages before the handshake is done.
         if (pto->fDisconnect || !pto->fSuccessfullyConnected)
@@ -6910,6 +6931,10 @@ bool SendMessages(CNode *pto)
             }
         }
 
+        // Check for block download timeout and disconnect node if necessary. Does not require cs_main.
+        int64_t nNow = GetTimeMicros();
+        requester.DisconnectOnDownloadTimeout(pto, consensusParams, nNow);
+
         TRY_LOCK(cs_main, lockMain); // Acquire cs_main for IsInitialBlockDownload() and CNodeState()
         if (!lockMain)
         {
@@ -6924,7 +6949,6 @@ bool SendMessages(CNode *pto)
         }
 
         // Address refresh broadcast
-        int64_t nNow = GetTimeMicros();
         if (!IsInitialBlockDownload() && pto->nNextLocalAddrSend < nNow)
         {
             AdvertiseLocal(pto);
@@ -7241,39 +7265,9 @@ bool SendMessages(CNode *pto)
             }
         }
 
-
-        // Check for block download timeout and disconnect node if necessary
-        requester.CheckForDownloadTimeout(pto, state, consensusParams, nNow);
-
-
-        //
-        // Message: getdata (blocks)
-        //
-        if (!pto->fDisconnect && !pto->fClient && state.nBlocksInFlight < (int)pto->nMaxBlocksInTransit)
-        {
-            std::vector<CBlockIndex *> vToDownload;
-            requester.FindNextBlocksToDownload(
-                pto->GetId(), pto->nMaxBlocksInTransit.load() - state.nBlocksInFlight, vToDownload);
-            // LOG(REQ, "IBD AskFor %d blocks from peer=%s\n", vToDownload.size(), pto->GetLogName());
-            std::vector<CInv> vGetBlocks;
-            for (CBlockIndex *pindex : vToDownload)
-            {
-                CInv inv(MSG_BLOCK, pindex->GetBlockHash());
-                if (!AlreadyHave(inv))
-                {
-                    vGetBlocks.emplace_back(inv);
-                    // LOG(REQ, "AskFor block %s (%d) peer=%s\n", pindex->GetBlockHash().ToString(),
-                    //     pindex->nHeight, pto->GetLogName());
-                }
-            }
-            if (!vGetBlocks.empty())
-            {
-                if (!IsInitialBlockDownload())
-                    requester.AskFor(vGetBlocks, pto);
-                else
-                    requester.AskForDuringIBD(vGetBlocks, pto);
-            }
-        }
+        // Request the next blocks. Mostly this will get exucuted during IBD but sometimes even
+        // when the chain is syncd a block will get request via this method.
+        requester.RequestNextBlocksToDownload(pto);
     }
     return true;
 }

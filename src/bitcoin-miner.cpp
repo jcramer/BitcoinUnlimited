@@ -301,7 +301,7 @@ int CpuMiner(void)
                 try
                 {
                     UniValue params;
-                    reply = CallRPC("getstratum", params);
+                    reply = CallRPC("getminingcandidate", params);
 
                     // Parse reply
                     result = find_value(reply, "result");
@@ -369,7 +369,11 @@ int CpuMiner(void)
         {
             fprintf((nRet == 0 ? stdout : stderr), "%s\n", strPrint.c_str());
             // Actually do some mining
-            if (1)
+            if (result.isNull())
+            {
+                MilliSleep(1000);
+            }
+            else
             {
                 CBlockHeader blkhdr;
                 // TODO: Fill in blkhdr members from reply

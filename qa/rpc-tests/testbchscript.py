@@ -19,8 +19,14 @@ from test_framework.nodemessages import *
 import test_framework.key as key
 
 import cashlib
-import bchscript
-bchscript.mode(bchscript.BCH_REGTEST)
+
+try:
+    import bchscript
+except ModuleNotFoundError:
+    print("You must create a symlink called bchscript in this directory to a local copy of https://github.com/gandrewstone/bchscript subdirectory bchscript")
+    sys.exit(1)
+
+# bchscript.mode(bchscript.BCH_REGTEST)
 
 def waitUntil(fn, timeout):
     while timeout>0:
@@ -181,7 +187,7 @@ class MyTest (BitcoinTestFramework):
         tx5.vout.append(CTxOut(100000000, outputscript))
         tx5.vin.append(CTxIn(COutPoint(txid4, 0), b"", 0xffffffff))
         sig5 = cashlib.signtx(tx5, 0, 100000000, spendoutscript, sighashtype, privkey2)
-        pdb.set_trace()
+
         spendScript = cashlib.spendscript( sig5, pubkey2[:15], pubkey2[15:], spendoutscript )
         tx5.vin[0].scriptSig = spendScript
         txid5 = self.nodes[0].sendrawtransaction(ToHex(tx5))
@@ -189,7 +195,6 @@ class MyTest (BitcoinTestFramework):
         assert self.nodes[0].getmempoolinfo()['size'] == 1
         self.nodes[0].generate(1)
 
-        pdb.set_trace()
         
 
 

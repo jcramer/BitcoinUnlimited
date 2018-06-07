@@ -148,7 +148,9 @@ uint256 SignatureHashBitcoinCash(const CScript &scriptCode,
         // Sighash type
         ss << nHashType;
 
-        return ss.GetHash();
+        uint256 sighash = ss.GetHash();
+        // printf("SigHash: %s\n", sighash.GetHex().c_str());
+        return sighash;
     }
     return one;
 }

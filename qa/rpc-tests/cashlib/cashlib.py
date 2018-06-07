@@ -24,7 +24,7 @@ def signtx(txbin, inputIdx, inputAmount, prevoutScript, sigHashType, key):
     if type(txbin) != bytes:
         txbin = txbin.serialize()
     result = create_string_buffer(100)
-    siglen = cashlib.SignTx(txbin, len(txbin), inputIdx, inputAmount, prevoutScript, len(prevoutScript), sigHashType, key, result, 100)
+    siglen = cashlib.SignTx(txbin, len(txbin), inputIdx, c_longlong(inputAmount), prevoutScript, len(prevoutScript), sigHashType, key, result, 100)
     print("siglen", siglen)
     if siglen==0:
         raise Error("cashlib signtx error")
